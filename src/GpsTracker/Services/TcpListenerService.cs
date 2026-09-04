@@ -62,7 +62,10 @@ public class TcpListenerService : BackgroundService
         using (client)
         {
             var remoteEndPoint = client.Client.RemoteEndPoint?.ToString() ?? "unknown";
-            _logger.LogInformation("Трекер подключился: {Remote}", remoteEndPoint);
+
+            // Соединение без единого байта — healthcheck-проба: логируем на Debug,
+            // чтобы не засорять лог (реальный трекер всегда шлёт логин первым).
+            var receivedAny = false;
 
             var buffer = new byte[MaxBufferSize];
             var session = new TrackerSession();
@@ -75,8 +78,18 @@ public class TcpListenerService : BackgroundService
                     var bytesRead = await stream.ReadAsync(buffer.AsMemory(session.BufferedLength), stoppingToken);
                     if (bytesRead == 0)
                     {
-                        _logger.LogInformation("Трекер отключился: {Remote}", remoteEndPoint);
+                        if (receivedAny)
+                        {
+                            _logger.LogInformation("Трекер отключился: {Remote}", remoteEndPoint);
+                        }
+
                         break;
+                    }
+
+                    if (!receivedAny)
+                    {
+                        receivedAny = true;
+                        _logger.LogInformation("Трекер подключился: {Remote}", remoteEndPoint);
                     }
 
                     session.BufferedLength += bytesRead;
@@ -105,7 +118,15 @@ public class TcpListenerService : BackgroundService
             }
             finally
             {
-                _logger.LogInformation("Обработка завершена: {Remote} (IMEI {Imei})", remoteEndPoint, session.Imei);
+                if (receivedAny)
+                {
+                    _logger.LogInformation("Обработка завершена: {Remote} (IMEI {Imei})", remoteEndPoint, session.Imei);
+                }
+                else
+                {
+                    // Healthcheck-проба или сканер портов: одна Debug-строка вместо трёх Information
+                    _logger.LogDebug("Пустое соединение закрыто: {Remote}", remoteEndPoint);
+                }
             }
         }
     }

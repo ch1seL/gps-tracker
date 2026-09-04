@@ -62,6 +62,9 @@ dotnet run --project tools/MapTest   # проверка рендера → map-p
     probe (`tools/HealthProbe/Probe.cs`, file-based app) — TCP-подключение с таймаутом 2 c,
     0 = ок. Публикуется с `-p:PublishAot=false` (file-based apps по умолчанию NativeAOT,
     в SDK-образе нет линковщика). `CMD-SHELL`/`/dev/tcp` в chiseled не работают.
+  - probe открывает пустые TCP-соединения каждые 30 c: `TcpListenerService` логирует
+    соединения без единого байта на **Debug** (реальный трекер всегда шлёт логин первым —
+    его логи остаются на Information). Не «чинить» обратно на Information.
   - Если финальный образ поменяется (например, на `-extra` с shell) — healthcheck можно
     вернуть на shell-вариант, probe не помешает.
 - Docker-стадии: restore (csproj+props) → build → **test** (dotnet test в образе) →
@@ -107,7 +110,8 @@ src/GpsTracker/                     Worker Service (net10.0)
 │   ├── Gt06Packet.cs               DTO пакета + enum Gt06PacketType
 │   └── Gt06ProtocolConstants.cs    номера протоколов и заголовки
 ├── Services/
-│   ├── TcpListenerService.cs       BackgroundService: TcpListener, автодетект протокола, буферы, SavePointAsync
+│   ├── TcpListenerService.cs       BackgroundService: TcpListener, автодетект протокола, буферы, SavePointAsync;
+│   │                               пустые соединения (healthcheck-probe) — только Debug в логе
 │   ├── TelegramBotService.cs       BackgroundService: Telegram.Bot v22, команды /start /pos /history
 │   └── MapRendererService.cs       SkiaSharp: сетка OSM-тайлов (дисковый кеш), polyline по скорости
 tests/GpsTracker.Tests/             xunit.v3 (net10.0, OutputType=Exe), включён в GpsTracker.sln
