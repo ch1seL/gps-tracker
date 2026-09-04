@@ -94,13 +94,17 @@ public class MapRendererService : IMapRendererService
                     using var bitmap = SKBitmap.Decode(bytes);
                     if (bitmap is null) return;
 
+                    // Origin дробный: тайлы рисуются с субпиксельным сдвигом,
+                    // лишнее обрезается краями канвы; Scale < 1 — тайлы сжимаются
+                    // вместе с проекцией
+                    var tilePx = (float)(TileSize * tiles.Scale);
                     canvas.DrawBitmap(
                         bitmap,
                         new SKRect(
-                            (tile.X - tiles.MinX) * TileSize,
-                            (tile.Y - tiles.MinY) * TileSize,
-                            (tile.X - tiles.MinX + 1) * TileSize,
-                            (tile.Y - tiles.MinY + 1) * TileSize),
+                            (float)((tile.X - tiles.OriginX) * tilePx),
+                            (float)((tile.Y - tiles.OriginY) * tilePx),
+                            (float)((tile.X - tiles.OriginX + 1) * tilePx),
+                            (float)((tile.Y - tiles.OriginY + 1) * tilePx)),
                         new SKSamplingOptions(SKCubicResampler.Mitchell));
                 }
                 catch (Exception ex)
@@ -249,10 +253,16 @@ public readonly record struct CanvasPoint(float X, float Y);
 
 /// <summary>
 /// Раскладка тайлов Web Mercator: какие тайлы нужны и как проецировать координаты на канву.
+/// Начало сетки (Origin) — дробное в тайловых координатах: это позволяет положить любую
+/// точку точно в заданное место канвы (например, в центр), рисуя тайлы с субпиксельным
+/// сдвигом и обрезая их краями изображения.
 /// </summary>
 public class TileGrid
 {
     private const double TileSizePx = 256;
+
+    private readonly int _canvasWidth;
+    private readonly int _canvasHeight;
 
     public int Zoom { get; }
     public int MinX { get; }
@@ -261,7 +271,18 @@ public class TileGrid
     public int MaxY { get; }
     public double Scale { get; } // пикселей канвы на пиксель тайла
 
-    public TileGrid(int zoom, int minX, int maxX, int minY, int maxY, double scale)
+    /// <summary>Начало канвы в тайловых координатах (дробное; по умолчанию MinX/MinY).</summary>
+    public double OriginX { get; }
+    public double OriginY { get; }
+
+    public TileGrid(
+        int zoom,
+        int minX, int maxX, int minY, int maxY,
+        double scale,
+        double? originX = null,
+        double? originY = null,
+        int? canvasWidth = null,
+        int? canvasHeight = null)
     {
         Zoom = zoom;
         MinX = minX;
@@ -269,10 +290,16 @@ public class TileGrid
         MinY = minY;
         MaxY = maxY;
         Scale = scale;
+        OriginX = originX ?? minX;
+        OriginY = originY ?? minY;
+
+        // Канва по умолчанию = вся площадь тайлов (целочисленная раскладка)
+        _canvasWidth = canvasWidth ?? (int)Math.Ceiling((MaxX - MinX + 1) * TileSizePx * Scale);
+        _canvasHeight = canvasHeight ?? (int)Math.Ceiling((MaxY - MinY + 1) * TileSizePx * Scale);
     }
 
-    public int Width => (int)Math.Ceiling((MaxX - MinX + 1) * TileSizePx * Scale);
-    public int Height => (int)Math.Ceiling((MaxY - MinY + 1) * TileSizePx * Scale);
+    public int Width => _canvasWidth;
+    public int Height => _canvasHeight;
 
     public static double LatitudeToY(double latitude, int zoom)
     {
@@ -292,8 +319,8 @@ public class TileGrid
         var x = LongitudeToX(longitude, Zoom);
         var y = LatitudeToY(latitude, Zoom);
         return new CanvasPoint(
-            (float)((x - MinX) * TileSizePx * Scale),
-            (float)((y - MinY) * TileSizePx * Scale));
+            (float)((x - OriginX) * TileSizePx * Scale),
+            (float)((y - OriginY) * TileSizePx * Scale));
     }
 
     public IEnumerable<TileCoordinate> Coordinates()
@@ -308,7 +335,8 @@ public class TileGrid
     }
 
     /// <summary>
-    /// Считает раскладку тайлов для набора точек: центр карты выравнивается по bounding box.
+    /// Считает раскладку тайлов для набора точек: центр bounding box попадает
+    /// точно в центр канвы независимо от выравнивания тайловой сетки.
     /// </summary>
     public static TileGrid Calculate(
         IReadOnlyList<GeoPoint> points,
@@ -324,20 +352,24 @@ public class TileGrid
 
         var tilesAcross = (int)Math.Ceiling(imageSize / TileSizePx);
 
-        var minTileX = centerX - tilesAcross / 2.0;
-        var minTileY = centerY - tilesAcross / 2.0;
+        // Начало сетки — дробное: центр bbox ровно в центре imageSize.
+        // Раньше здесь был Floor — дробный остаток сдвигал контент к краю,
+        // и при frac→1 маркер оказывался в правом нижнем углу.
+        var originX = centerX - tilesAcross / 2.0;
+        var originY = centerY - tilesAcross / 2.0;
 
-        var minX = (int)Math.Floor(minTileX);
-        var minY = (int)Math.Floor(minTileY);
+        var minX = (int)Math.Floor(originX);
+        var minY = (int)Math.Floor(originY);
         var maxX = minX + tilesAcross - 1;
         var maxY = minY + tilesAcross - 1;
 
-        // Масштаб: чтобы точки с padding занимали максимум доступного места
-        var scaleX = imageSize / ((maxX - minX + 1) * TileSizePx);
-        var scaleY = imageSize / ((maxY - minY + 1) * TileSizePx);
-        var scale = Math.Min(scaleX, scaleY);
-
-        var grid = new TileGrid(zoom, minX, maxX, minY, maxY, scale);
+        var grid = new TileGrid(
+            zoom, minX, maxX, minY, maxY,
+            scale: 1.0,
+            originX: originX,
+            originY: originY,
+            canvasWidth: imageSize,
+            canvasHeight: imageSize);
 
         // Проверяем, что все точки попадают на канву с padding (иначе уменьшаем масштаб)
         double minXpx = points.Min(p => grid.Project(p.Latitude, p.Longitude).X);
@@ -353,9 +385,17 @@ public class TileGrid
             requiredX > 0 ? available / requiredX : double.MaxValue,
             requiredY > 0 ? available / requiredY : double.MaxValue);
 
-        if (fitScale < grid.Scale)
+        if (fitScale < 1.0)
         {
-            grid = new TileGrid(zoom, minX, maxX, minY, maxY, fitScale);
+            // При уменьшении масштаба держим прежний центр канвы: пересчитываем Origin
+            // вокруг той же точки (tiles.Project(centerX, centerY) = imageSize/2).
+            grid = new TileGrid(
+                zoom, minX, maxX, minY, maxY,
+                scale: fitScale,
+                originX: centerX - imageSize / (2.0 * TileSizePx * fitScale),
+                originY: centerY - imageSize / (2.0 * TileSizePx * fitScale),
+                canvasWidth: imageSize,
+                canvasHeight: imageSize);
         }
 
         return grid;

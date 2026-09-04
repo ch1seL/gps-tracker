@@ -113,9 +113,13 @@ src/GpsTracker/                     Worker Service (net10.0)
 │   ├── TcpListenerService.cs       BackgroundService: TcpListener, автодетект протокола, буферы, SavePointAsync;
 │   │                               пустые соединения (healthcheck-probe) — только Debug в логе
 │   ├── TelegramBotService.cs       BackgroundService: Telegram.Bot v22, команды /start /pos /history
-│   └── MapRendererService.cs       SkiaSharp: сетка OSM-тайлов (дисковый кеш), polyline по скорости
+│   └── MapRendererService.cs       SkiaSharp: сетка OSM-тайлов (дисковый кеш), polyline по скорости;
+│   │                               центр bbox точно в центре канвы (дробный TileGrid.Origin —
+│   │                               тайлы рисуются с субпиксельным сдвигом и режутся краями)
 tests/GpsTracker.Tests/             xunit.v3 (net10.0, OutputType=Exe), включён в GpsTracker.sln
 ├── Gt02TextProtocolParserTests.cs  11 юнит-тестов на реальных кадрах трекера
+├── HistoryPeriodTests.cs           разбор периода /history (2d/6h/30m, диапазон дат, мусор)
+├── TileGridTests.cs                центрирование карты: bbox-центр = центр канвы при любом выравнивании сетки
 ├── TcpProtocolIntegrationTests.cs  7 интеграционных: реальный TcpListenerService на свободном порту
 ├── Helpers/Gt02Frames.cs           конструктор кадров GT02 (логин/локация)
 ├── Helpers/Gt06Packets.cs          конструктор пакетов GT06 (CRC, BCD, битый CRC, проверка ACK)
