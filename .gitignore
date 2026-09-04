@@ -1,0 +1,15 @@
+bin/
+obj/
+*.db
+*.db-shm
+*.db-wal
+App_Data/
+tile-cache/
+tile-cache-test/
+map-*.png
+.env
+
+# Личные настройки IDE
+*.user
+# Rider IDE
+.idea/
