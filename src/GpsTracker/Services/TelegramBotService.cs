@@ -129,20 +129,20 @@ public class TelegramBotService : BackgroundService
             return;
         }
 
-        var caption = BuildPositionCaption(lastPoint);
+            var caption = BuildPositionCaption(lastPoint);
 
-        try
-        {
-            var png = await _mapRenderer.RenderPositionAsync(lastPoint, ct);
-            using var stream = new MemoryStream(png);
-            var photo = new InputFileStream(stream, "position.png");
-            await bot.SendPhoto(chatId, photo, caption: caption, cancellationToken: ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Не удалось отрисовать карту позиции");
-            await bot.SendMessage(chatId, caption, cancellationToken: ct);
-        }
+            try
+            {
+                var png = await _mapRenderer.RenderPositionAsync(lastPoint, ct);
+                using var stream = new MemoryStream(png);
+                var photo = new InputFileStream(stream, "position.png");
+                await bot.SendPhoto(chatId, photo, caption: caption, parseMode: ParseMode.Html, cancellationToken: ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Не удалось отрисовать карту позиции");
+                await bot.SendMessage(chatId, caption, parseMode: ParseMode.Html, cancellationToken: ct);
+            }
     }
 
     private async Task SendHistoryAsync(ITelegramBotClient bot, long chatId, string command, CancellationToken ct)
@@ -240,8 +240,12 @@ public class TelegramBotService : BackgroundService
         sb.AppendLine($"Время: {p.Timestamp:dd.MM.yyyy HH:mm:ss} UTC");
         sb.AppendLine($"Координаты: {p.Latitude:F6}, {p.Longitude:F6}");
         sb.AppendLine($"Скорость: {p.Speed:F0} км/ч");
-        sb.AppendLine($"Спутники: {p.Satellites}");
-        sb.Append($"[Открыть на карте](https://www.openstreetmap.org/?mlat={p.Latitude:F6}&mlon={p.Longitude:F6}#map=17/{p.Latitude:F6}/{p.Longitude:F6})");
+        if (p.Satellites > 0)
+        {
+            sb.AppendLine($"Спутники: {p.Satellites}");
+        }
+        var url = $"https://www.openstreetmap.org/?mlat={p.Latitude:F6}&mlon={p.Longitude:F6}#map=17/{p.Latitude:F6}/{p.Longitude:F6}";
+        sb.Append($"<a href=\"{url}\">Открыть на карте</a>");
         return sb.ToString();
     }
 

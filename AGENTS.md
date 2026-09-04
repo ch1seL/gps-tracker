@@ -194,7 +194,10 @@ Dockerfile                          multistage (docker/dockerfile:1, COPY --link
    (`SendTextMessageAsync`/`SendPhotoAsync` из v19 не существуют); приём —
    `bot.StartReceiving(updateHandler:, errorHandler:, receiverOptions:, cancellationToken:)`
    (в v19 параметр назывался pollingErrorHandler); `InputFileStream` НЕ IDisposable
-   (оборачивать `MemoryStream` в `using` отдельно).
+   (оборачивать `MemoryStream` в `using` отдельно). Разметка сообщений — только
+   `parseMode: ParseMode.Html` + HTML-теги (`<a href>`, `<b>`); без parseMode всё
+   отображается как plain text, Markdown-синтаксис `[текст](url)` виден буквально
+   (однажды сломал ссылку «Открыть на карте» в /pos).
 3. **SkiaSharp 4**: `SKColors.Parse` не существует — только `new SKColor(r, g, b)`;
    `with`-выражения на классах не работают (например `TileGrid` — ctor-based класс);
    `canvas.DrawBitmap` требует оверлоад с `SKSamplingOptions` (без него CS0618).
