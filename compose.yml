@@ -18,8 +18,8 @@ services:
       - gps-data:/app/App_Data # SQLite-база
       - gps-tiles:/app/tile-cache # кеш OSM-тайлов
     healthcheck:
-      # Проверка, что TCP-сервер слушает порт
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/5023"]
+      # TCP-проба из образа; exec-форма — chiseled не имеет shell
+      test: ["CMD", "/usr/share/dotnet/dotnet", "/app/probe/Probe.dll", "5023"]
       interval: 30s
       timeout: 5s
       retries: 3

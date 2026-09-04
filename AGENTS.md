@@ -29,8 +29,10 @@ dotnet run --project tools/MapTest   # проверка рендера → map-p
     `git add` или `git rm --cached <путь>`;
   - `M` во втором столбце — правка не застейджена → `git add <путь>`.
 - Сгенерированное в индекс не добавлять — `.gitignore` закрывает `bin/`, `obj/`,
-  `App_Data/`, `tile-cache*/`, `map-*.png`, `.env`; личные настройки IDE (`*.user`,
-  `.idea/`) — кандидаты в `.gitignore`, а не в коммит.
+  `App_Data/*` (кроме `.keep`), `tile-cache*/`, `map-*.png`, `.env`; личные настройки
+  IDE (`*.user`, `.idea/`) — кандидаты в `.gitignore`, а не в коммит.
+- Пустые служебные каталоги (`App_Data/`) держит в git файл `.keep`; он же
+  включён в publish через `None Include ... CopyToOutputDirectory` в csproj.
 - `appsettings.json` содержит реальный токен бота — копировать его содержимое в другие
   файлы, документацию и вывод команд нельзя.
 
@@ -48,6 +50,24 @@ dotnet run --project tools/MapTest   # проверка рендера → map-p
 - Новый пакет = строка `<PackageVersion Include="..." Version="..." />` в props-файле +
   `<PackageReference Include="..." />` в проекте. Обновление версии — в одном месте.
 - `SQLitePCLRaw.bundle_e_sqlite3` — закреплённая транзитивная зависимость (GHSA-2m69-gcr7-jv3q).
+
+## Docker
+
+- Final-стадия — **chiseled** (`runtime:10.0-noble-chiseled`, distroless): нет shell,
+  нет root, `USER=$APP_UID` (1654) вшит в образ. Отсюда:
+  - `mkdir`/`chown` данных и публикация probe — в стадии **publish** (там есть shell);
+    владельца финальных файлов ставит `COPY --chown=$APP_UID:$APP_UID` (сам BuildKit:
+    `COPY --from` сбрасывает владельца на 0:0, а бинарника chown в chiseled нет).
+  - healthcheck compose — **exec-форма**: `["CMD", "dotnet", "/app/probe/Probe.dll", "5023"]`;
+    probe (`tools/HealthProbe/Probe.cs`, file-based app) — TCP-подключение с таймаутом 2 c,
+    0 = ок. Публикуется с `-p:PublishAot=false` (file-based apps по умолчанию NativeAOT,
+    в SDK-образе нет линковщика). `CMD-SHELL`/`/dev/tcp` в chiseled не работают.
+  - Если финальный образ поменяется (например, на `-extra` с shell) — healthcheck можно
+    вернуть на shell-вариант, probe не помешает.
+- Docker-стадии: restore (csproj+props) → build → **test** (dotnet test в образе) →
+  publish (приложение + probe + mkdir App_Data/tile-cache) → final (chiseled).
+- `GpsTracker.Tests` — OutputType=Exe (xunit.v3) — в `docker run` работает как обычное
+  приложение; stage test в Dockerfile гоняет его без shell.
 
 ## CI/CD (GitHub Actions)
 
@@ -77,6 +97,7 @@ global.json                         фиксация версии .NET SDK
 src/GpsTracker/                     Worker Service (net10.0)
 ├── Program.cs                      DI: AddDbContextFactory, HttpClient "tiles", IOptions, HostedServices
 ├── appsettings.json                порт, токен бота, tile-сервер, строка подключения (секреты не трогать)
+├── App_Data/.keep                  держит каталог БД в git и в publish-выходе
 ├── Models/GpsPoint.cs              сущность точки (Imei, Latitude, Longitude, Speed, Course, Satellites, Timestamp, CreatedAt)
 ├── Database/AppDbContext.cs        EF Core + SQLite, индексы (Imei, Timestamp)
 ├── Configuration/                  TcpSettings, TelegramSettings, MapSettings — биндятся через IOptions
@@ -101,14 +122,16 @@ tools/MapTest/                      консольная утилита пров
 tools/generate-env.sh               генератор .env для compose (токен + chat id, права 600)
 compose.yml                         docker compose для локальной разработки (сборка из исходников)
 compose.prod.yml                    прод-компоуз для сервера: образ из GHCR, интерполяция GHCR_IMAGE/IMAGE_TAG
-Dockerfile                          multistage (docker/dockerfile:1-labs, COPY --parents); стадии restore/build/test/publish/final
+.dockerignore                       контекст сборки без bin/obj/секретов (obj хоста ломает restore — NETSDK1064)
+Dockerfile                          multistage (docker/dockerfile:1, COPY --link --parents); restore/build/test/publish/final
 ```
 
 ## Модель данных и БД
 
 - Таблица `GpsPoints`, схема создаётся `EnsureCreatedAsync()` при старте.
 - **Миграций EF нет**: изменение модели = удалить файл `App_Data/gps-tracker.db`.
-- База и кеш тайлов в gitignored-каталогах (`App_Data/`, `tile-cache*/`) — генерируются сами.
+- База и кеш тайлов в gitignored-каталогах (`App_Data/*`, `tile-cache*/`) — генерируются
+  сами; `App_Data/.keep` коммится (см. Git-раздел).
 
 ## Спецификации протоколов
 

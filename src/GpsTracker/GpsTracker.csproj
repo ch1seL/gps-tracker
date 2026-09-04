@@ -13,4 +13,10 @@
     <PackageReference Include="Telegram.Bot" />
   </ItemGroup>
 
+  <!-- Каталог для SQLite-базы: .keep держит его в git, Include — в publish-выходе
+       (Docker-том монтируется в существующий каталог, владелец из Dockerfile) -->
+  <ItemGroup>
+    <None Include="App_Data\.keep" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

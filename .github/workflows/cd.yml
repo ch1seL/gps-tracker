@@ -21,7 +21,6 @@ name: cd
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
