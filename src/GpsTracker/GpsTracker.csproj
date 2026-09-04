@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
 
+  <PropertyGroup>
+    <UserSecretsId>92dfa4ab-e436-4bc2-a456-ec2adb6b10d4</UserSecretsId>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />

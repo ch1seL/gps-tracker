@@ -1,0 +1,29 @@
+# Прод-компоуз для деплоя на сервер: образ из GHCR, secrets из .env рядом с файлом.
+# Деплой автоматизирован (.github/workflows/cd.yml), вручную:
+#   docker compose -f compose.prod.yml pull && docker compose -f compose.prod.yml up -d
+#
+# Требуется .env (Telegram__BotToken, Telegram__AllowedChatIds__0) в каталоге деплоя.
+
+services:
+  gps-tracker:
+    image: ${GHCR_IMAGE:?set GHCR_IMAGE=ghcr.io/<owner>/<repo>}:${IMAGE_TAG:?set IMAGE_TAG=sha-xxxxxxx}
+    container_name: gps-tracker
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: true # в проде бот обязателен: без токена деплой бессмыслен
+    ports:
+      - "5023:5023" # приём координат от трекера
+    volumes:
+      - gps-data:/app/App_Data # SQLite-база
+      - gps-tiles:/app/tile-cache # кеш OSM-тайлов
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/5023"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  gps-data:
+  gps-tiles:

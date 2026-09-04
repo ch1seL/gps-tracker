@@ -49,9 +49,28 @@ dotnet run --project tools/MapTest   # проверка рендера → map-p
   `<PackageReference Include="..." />` в проекте. Обновление версии — в одном месте.
 - `SQLitePCLRaw.bundle_e_sqlite3` — закреплённая транзитивная зависимость (GHSA-2m69-gcr7-jv3q).
 
+## CI/CD (GitHub Actions)
+
+`.github/workflows/cd.yml`, триггер — push в `main` и теги `v*`. Джобы: `test`
+(dotnet test) → `build-push` (образ в `ghcr.io/<owner>/<repo>`, теги `main`/`latest`/
+`sha-<hash>`/`vX.Y.Z`, кеш type=gha) → `deploy` по SSH (scp `compose.prod.yml`,
+`docker compose pull && up -d`, только для `main`).
+
+- Деплой-джоба — **environment `production`** (защиту/ревьюеров включать в
+  Settings → Environments); секреты — `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`,
+  `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, опционально `SSH_PORT`, `GHCR_TOKEN`
+  (PAT read:packages для приватного пакета); vars: `DEPLOY_DIR`.
+- `.env` на сервере создаёт сам CI из `TELEGRAM_*`-секретов (printf через stdin
+  ssh + `umask 177` → права 600); при пустых секретах — fail-fast с понятной ошибкой.
+- Имя образа — `${GITHUB_REPOSITORY,,}` (нижний регистр обязателен); тег деплоя
+  `sha-${GITHUB_SHA::7}` совпадает с `type=sha` metadata-action.
+- SSH-подключение без сторонних actions: ключ во временный файл (mktemp + trap),
+  `StrictHostKeyChecking=accept-new`, токен GHCR передаётся через stdin ssh (не в argv).
+
 ## Карта кода
 
 ```
+.github/workflows/cd.yml           CI/CD: тесты → GHCR → SSH-деплой (секреты в README)
 Directory.Build.props               общие свойства проектов: TFM, Nullable, ImplicitUsings
 Directory.Packages.props            версии всех NuGet-пакетов (CPM, см. раздел выше)
 global.json                         фиксация версии .NET SDK
@@ -79,6 +98,10 @@ tests/GpsTracker.Tests/             xunit.v3 (net10.0, OutputType=Exe), вклю
 ├── Helpers/TcpServerFixture.cs     хост с TcpListenerService + временная SQLite, автоудаление
 └── ModuleInitializer.cs            фиксирует InvariantCulture на весь тестовый хост
 tools/MapTest/                      консольная утилита проверки рендера (не автотест)
+tools/generate-env.sh               генератор .env для compose (токен + chat id, права 600)
+compose.yml                         docker compose для локальной разработки (сборка из исходников)
+compose.prod.yml                    прод-компоуз для сервера: образ из GHCR, интерполяция GHCR_IMAGE/IMAGE_TAG
+Dockerfile                          multistage (docker/dockerfile:1-labs, COPY --parents); стадии restore/build/test/publish/final
 ```
 
 ## Модель данных и БД

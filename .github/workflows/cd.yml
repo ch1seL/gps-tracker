@@ -1,0 +1,161 @@
+# CD: тесты → сборка и публикация образа в GHCR → деплой compose на сервер по SSH.
+#
+# Требуемые секреты (Settings → Environments → production → Environment secrets,
+# либо Secrets → Actions — тогда они общие для всех окружений):
+#   SSH_HOST            — IP/хост сервера
+#   SSH_USER            — пользователь, входящий в группу docker
+#   SSH_PRIVATE_KEY     — приватный ключ (ed25519); публичная часть — в authorized_keys сервера
+#   TELEGRAM_BOT_TOKEN  — токен Telegram-бота
+#   TELEGRAM_CHAT_ID    — chat id белого списка
+#   SSH_PORT            — опционально, нестандартный порт sshd (по умолчанию 22)
+#   GHCR_TOKEN          — опционально: PAT с read:packages, только если пакет GHCR приватный
+#
+# Переменные репозитория (Variables):
+#   DEPLOY_DIR      — опционально, каталог на сервере относительно $HOME (по умолчанию gps-tracker)
+#
+# Разовая подготовка сервера: docker + compose plugin, authorized_keys.
+# .env на сервере создаёт CI из секретов при каждом деплое (вручную ничего не писать).
+
+name: cd
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  # ---------------------------------------------------------------- тесты
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Test
+        run: dotnet test
+
+  # ---------------------------------------------------------------- образ → GHCR
+  build-push:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.name }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # ghcr требует имена в нижнем регистре, а GITHUB_REPOSITORY может содержать заглавные
+      - id: image
+        run: echo "name=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      # точный тег деплоя (совпадает с type=sha у metadata-action)
+      - id: tag
+        run: echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------- деплой по SSH
+  deploy:
+    needs: build-push
+    if: github.ref == 'refs/heads/main'
+    # защита окружения (reviewers и пр.) настраивается в Settings → Environments → production
+    environment: production
+    runs-on: ubuntu-latest
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+      SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      GHCR_USER: ${{ github.actor }}
+      DEPLOY_DIR: ${{ vars.DEPLOY_DIR || 'gps-tracker' }}
+      GHCR_IMAGE: ${{ needs.build-push.outputs.image }}
+      IMAGE_TAG: ${{ needs.build-push.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Deploy compose over SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # secrets пустыми быть не могут — упадём с понятной ошибкой до ssh-подключения
+          [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]] || {
+            echo "::error::Задайте TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID (environment production)"
+            exit 1
+          }
+
+          key="$(mktemp)"
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$SSH_KEY" > "$key"
+          chmod 600 "$key"
+
+          ssh_opts=(-p "$SSH_PORT" -i "$key" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+          scp_opts=(-P "$SSH_PORT" -i "$key" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+          remote="$SSH_USER@$SSH_HOST"
+
+          ssh "${ssh_opts[@]}" "$remote" "mkdir -p '$DEPLOY_DIR'"
+
+          # .env генерируется из секретов при каждом деплое (права 600, токен — через stdin)
+          printf '# Сгенерировано CI, environment: production\nTelegram__BotToken=%s\nTelegram__AllowedChatIds__0=%s\n' \
+            "$BOT_TOKEN" "$CHAT_ID" |
+            ssh "${ssh_opts[@]}" "$remote" "umask 177 && cat > '$DEPLOY_DIR/.env'"
+
+          scp "${scp_opts[@]}" compose.prod.yml "$remote:$DEPLOY_DIR/compose.prod.yml"
+
+          # логин на сервере нужен только для приватного пакета GHCR (PAT с read:packages)
+          if [ -n "${GHCR_TOKEN:-}" ]; then
+            printf '%s\n' "$GHCR_TOKEN" | ssh "${ssh_opts[@]}" "$remote" \
+              "docker login ${REGISTRY} -u '$GHCR_USER' --password-stdin"
+          fi
+
+          ssh "${ssh_opts[@]}" "$remote" "
+            cd '$DEPLOY_DIR' &&
+            export GHCR_IMAGE='$GHCR_IMAGE' IMAGE_TAG='$IMAGE_TAG' &&
+            docker compose -f compose.prod.yml pull &&
+            docker compose -f compose.prod.yml up -d --remove-orphans &&
+            docker image prune -f &&
+            docker compose -f compose.prod.yml ps
+          "

@@ -118,4 +118,56 @@ TCP-сервер с временной БД и проверяющие запис
 - [x] Приём координат (GT06 binary + GT02 text), SQLite
 - [x] Telegram-бот: `/pos`, `/history` с раскраской по скорости
 - [x] Юнит- и интеграционные тесты
-- [ ] Dockerfile + compose (проброс 5023, volume для `App_Data` и `tile-cache`)
+- [x] Dockerfile + compose (проброс 5023, volume для `App_Data` и `tile-cache`)
+- [x] CI/CD: GitHub Actions → образ в GHCR → автодеплой на сервер по SSH
+
+## Запуск через Docker
+
+Локально (сборка из исходников):
+
+```bash
+./tools/generate-env.sh "<BOT_TOKEN>" <CHAT_ID>   # один раз: .env с правами 600
+docker compose up -d --build                      # TCP :5023 + бот, данные в named-томах
+```
+
+`compose.yml` собирает образ из исходников; `compose.prod.yml` — для сервера: тянет
+готовый образ из GHCR, исходники и Dockerfile там не нужны.
+
+## Деплой на сервер (CI/CD)
+
+Пайплайн [`.github/workflows/cd.yml`](.github/workflows/cd.yml), триггер — push в `main`
+(и теги `v*`): тесты → сборка образа → публикация в `ghcr.io/<owner>/<repo>`
+(теги `main`, `latest`, `sha-<hash>`, `vX.Y.Z`) → деплой по SSH.
+
+### Настройка секретов
+
+Секреты деплоя живут в **environment `production`** (Settings → Environments → production
+→ Environment secrets) — там же можно включить обязательное подтверждение (reviewers)
+перед деплоем. Допустимо задать их и в общих Secrets → Actions.
+
+| Секрет | Назначение |
+|---|---|
+| `SSH_HOST` | IP/хост сервера |
+| `SSH_USER` | пользователь, входящий в группу `docker` |
+| `SSH_PRIVATE_KEY` | приватный ключ; публичная часть — в `~/.ssh/authorized_keys` сервера |
+| `TELEGRAM_BOT_TOKEN` | токен Telegram-бота |
+| `TELEGRAM_CHAT_ID` | chat id белого списка |
+| `SSH_PORT` | *опционально*, нестандартный порт sshd (по умолчанию 22) |
+| `GHCR_TOKEN` | *опционально*, PAT с `read:packages` — только если пакет GHCR приватный |
+
+Переменная репозитория `DEPLOY_DIR` — каталог на сервере относительно `$HOME`
+(по умолчанию `gps-tracker`).
+
+`.env` на сервере создаётся **самим CI** при каждом деплое из `TELEGRAM_*` секретов
+(права 600) — вручную его писать не нужно.
+
+### Разовая подготовка сервера
+
+```bash
+# docker + compose plugin, ключ в authorized_keys — по инструкции вашего хостинга
+```
+
+Дальше каждый push в `main` обновляет сервер сам: CI пишет `.env`, делает
+`docker compose pull && up -d`. Чтобы образ был доступен серверу без PAT, сделайте
+пакет публичным: на GitHub — Packages → gps-tracker → Package settings →
+Change visibility → Public.
