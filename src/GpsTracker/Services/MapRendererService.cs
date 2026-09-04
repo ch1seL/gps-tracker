@@ -350,55 +350,40 @@ public class TileGrid
         var centerX = (xs.Min() + xs.Max()) / 2.0;
         var centerY = (ys.Min() + ys.Max()) / 2.0;
 
-        var tilesAcross = (int)Math.Ceiling(imageSize / TileSizePx);
+        // Базовый масштаб 1.0; если трек не влезает с padding — уменьшаем
+        var requiredX = (xs.Max() - xs.Min()) * TileSizePx;
+        var requiredY = (ys.Max() - ys.Min()) * TileSizePx;
+        var available = imageSize - paddingPx * 2;
+        var scale = Math.Min(
+            requiredX > 0 ? available / requiredX : double.MaxValue,
+            requiredY > 0 ? available / requiredY : double.MaxValue);
+        if (scale > 1.0)
+        {
+            scale = 1.0;
+        }
 
-        // Начало сетки — дробное: центр bbox ровно в центре imageSize.
+        // Дробное начало сетки: центр bbox ровно в центре imageSize.
         // Раньше здесь был Floor — дробный остаток сдвигал контент к краю,
         // и при frac→1 маркер оказывался в правом нижнем углу.
-        var originX = centerX - tilesAcross / 2.0;
-        var originY = centerY - tilesAcross / 2.0;
+        var originX = centerX - imageSize / (2.0 * TileSizePx * scale);
+        var originY = centerY - imageSize / (2.0 * TileSizePx * scale);
 
+        // Диапазон тайлов должен покрыть канву ЦЕЛИКОМ: [origin, origin + tilesAcross].
+        // При дробном origin это на 1 тайл больше, чем floor(origin) + целые тайлы:
+        // иначе правый/нижний край канвы остаётся без тайлов (серый фон).
+        var tilesAcross = imageSize / (TileSizePx * scale);
         var minX = (int)Math.Floor(originX);
+        var maxX = (int)Math.Ceiling(originX + tilesAcross) - 1;
         var minY = (int)Math.Floor(originY);
-        var maxX = minX + tilesAcross - 1;
-        var maxY = minY + tilesAcross - 1;
+        var maxY = (int)Math.Ceiling(originY + tilesAcross) - 1;
 
-        var grid = new TileGrid(
+        return new TileGrid(
             zoom, minX, maxX, minY, maxY,
-            scale: 1.0,
+            scale,
             originX: originX,
             originY: originY,
             canvasWidth: imageSize,
             canvasHeight: imageSize);
-
-        // Проверяем, что все точки попадают на канву с padding (иначе уменьшаем масштаб)
-        double minXpx = points.Min(p => grid.Project(p.Latitude, p.Longitude).X);
-        double maxXpx = points.Max(p => grid.Project(p.Latitude, p.Longitude).X);
-        double minYpx = points.Min(p => grid.Project(p.Latitude, p.Longitude).Y);
-        double maxYpx = points.Max(p => grid.Project(p.Latitude, p.Longitude).Y);
-
-        double available = imageSize - paddingPx * 2;
-        var requiredX = maxXpx - minXpx;
-        var requiredY = maxYpx - minYpx;
-
-        var fitScale = Math.Min(
-            requiredX > 0 ? available / requiredX : double.MaxValue,
-            requiredY > 0 ? available / requiredY : double.MaxValue);
-
-        if (fitScale < 1.0)
-        {
-            // При уменьшении масштаба держим прежний центр канвы: пересчитываем Origin
-            // вокруг той же точки (tiles.Project(centerX, centerY) = imageSize/2).
-            grid = new TileGrid(
-                zoom, minX, maxX, minY, maxY,
-                scale: fitScale,
-                originX: centerX - imageSize / (2.0 * TileSizePx * fitScale),
-                originY: centerY - imageSize / (2.0 * TileSizePx * fitScale),
-                canvasWidth: imageSize,
-                canvasHeight: imageSize);
-        }
-
-        return grid;
     }
 
     /// <summary>
