@@ -200,9 +200,13 @@ Dockerfile                          multistage (docker/dockerfile:1, COPY --link
    запятую (`6006,96`), что молча искажает координаты (тестовый хост зафиксирован в
    `ModuleInitializer.cs`). Тот же риск в любом новом коде разбора.
 6. IMEI живёт в сессии, а не в пакете локации (оба протокола).
-7. `SQLitePCLRaw.bundle_e_sqlite3 3.0.5` закреплён явно — закрывает GHSA-2m69-gcr7-jv3q,
+7. **`GpsPoint.Timestamp` — `DateTime` (UTC)**: в EF-запросах к SQLite сравнивать только
+   с `DateTime` — `DateTimeOffset`-параметры провайдер не транслирует ( InvalidOperationException
+   в рантайме /history, 2026-09). Периоды из парсера — `DateTimeOffset` → перед запросом
+   `.UtcDateTime`.
+8. `SQLitePCLRaw.bundle_e_sqlite3 3.0.5` закреплён явно — закрывает GHSA-2m69-gcr7-jv3q,
    не удалять.
-8. Тестовый проект включён в sln вручную (`dotnet new xunit`/`dotnet sln add` падают из-за
+9. Тестовый проект включён в sln вручную (`dotnet new xunit`/`dotnet sln add` падают из-за
    песочницы) — новые тесты добавлять файлами в существующий проект.
 
 ## Конвенции тестов

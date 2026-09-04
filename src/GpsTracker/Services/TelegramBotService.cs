@@ -161,10 +161,14 @@ public class TelegramBotService : BackgroundService
         }
 
         var (from, to) = period.Value;
+        // В БД Timestamp — DateTime (UTC): сравнение с DateTimeOffset SQLite-провайдер
+        // не транслирует (InvalidOperationException в /history), поэтому приводим в SQL-тип.
+        var fromUtc = from.UtcDateTime;
+        var toUtc = to.UtcDateTime;
 
         await using var db = await _dbContextFactory.CreateDbContextAsync(ct);
         var points = await db.GpsPoints
-            .Where(p => p.Timestamp >= from && p.Timestamp <= to)
+            .Where(p => p.Timestamp >= fromUtc && p.Timestamp <= toUtc)
             .OrderBy(p => p.Timestamp)
             .ToListAsync(ct);
 
@@ -220,7 +224,7 @@ public class TelegramBotService : BackgroundService
             case 2 when
                 DateTimeOffset.TryParse(args[0], CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var from) &&
                 DateTimeOffset.TryParse(args[1], CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var to):
-                return (from, to < from ? to.AddDays(1) : to); // дата без времени = конец дня
+                return (from, to < from ? to.AddDays(1) : to); // to < from — вероятно, забыли время: сдвигаем to на сутки
 
             default:
                 return null;
