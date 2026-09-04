@@ -132,4 +132,25 @@ public class TileGridTests
         Assert.True((grid.MinY - grid.OriginY) * 256 * grid.Scale <= 0, "верхний край не покрыт");
         Assert.True((grid.MaxY + 1 - grid.OriginY) * 256 * grid.Scale >= 512, "нижний край не покрыт");
     }
+
+    [Fact]
+    public void MaxScale_ReducesTileSize_KeepsCenterAndCanvas()
+    {
+        // /pos 2.5 → maxScale = 1/2.5: тайл вдвое с четвертью мельче, точка в центре
+        var grid = TileGrid.Calculate(
+            new[] { new GeoPoint(60.1158, 31.3798) },
+            zoom: 15, imageSize: 512, paddingPx: 96, maxScale: 1.0 / 2.5);
+
+        Assert.Equal(1.0 / 2.5, grid.Scale, precision: 6);
+        Assert.Equal(512, grid.Width);
+        Assert.Equal(512, grid.Height);
+
+        var px = grid.Project(60.1158, 31.3798);
+        Assert.Equal(256, px.X, precision: 0);
+        Assert.Equal(256, px.Y, precision: 0);
+
+        // Тайлов теперь больше (мир мельче) — канва покрыта целиком
+        Assert.True((grid.MaxX + 1 - grid.OriginX) * 256 * grid.Scale >= 512, "правый край не покрыт");
+        Assert.True((grid.MaxY + 1 - grid.OriginY) * 256 * grid.Scale >= 512, "нижний край не покрыт");
+    }
 }

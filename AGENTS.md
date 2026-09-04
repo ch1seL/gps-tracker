@@ -119,6 +119,7 @@ src/GpsTracker/                     Worker Service (net10.0)
 tests/GpsTracker.Tests/             xunit.v3 (net10.0, OutputType=Exe), включён в GpsTracker.sln
 ├── Gt02TextProtocolParserTests.cs  11 юнит-тестов на реальных кадрах трекера
 ├── HistoryPeriodTests.cs           разбор периода /history (2d/6h/30m, диапазон дат, мусор)
+├── PositionZoomFactorTests.cs      разбор множителя /pos 2.5 (запятая/точка, лимит 1–10)
 ├── TileGridTests.cs                центрирование карты: bbox-центр = центр канвы при любом выравнивании сетки
 ├── TcpProtocolIntegrationTests.cs  7 интеграционных: реальный TcpListenerService на свободном порту
 ├── Helpers/Gt02Frames.cs           конструктор кадров GT02 (логин/локация)

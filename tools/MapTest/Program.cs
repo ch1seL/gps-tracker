@@ -40,6 +40,11 @@ var positionPng = await renderer.RenderPositionAsync(points[^1]);
 await File.WriteAllBytesAsync("map-position.png", positionPng);
 Console.WriteLine($"position.png: {positionPng.Length} bytes");
 
+// 1a. Позиция с уменьшенным масштабом (/pos 2.5)
+var positionZoomedPng = await renderer.RenderPositionAsync(points[^1], zoomOutFactor: 2.5);
+await File.WriteAllBytesAsync("map-position-2.5x.png", positionZoomedPng);
+Console.WriteLine($"position-2.5x.png: {positionZoomedPng.Length} bytes");
+
 // 2. История за весь круг
 var trackPng = await renderer.RenderTrackAsync(points);
 await File.WriteAllBytesAsync("map-history.png", trackPng);

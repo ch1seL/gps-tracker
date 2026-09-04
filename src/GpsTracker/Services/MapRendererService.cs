@@ -25,8 +25,10 @@ public class MapRendererService : IMapRendererService
 
     /// <summary>
     /// Рисует карту с одним маркером (текущая позиция).
+    /// <paramref name="zoomOutFactor"/> &gt; 1 уменьшает масштаб во столько же раз
+    /// (тайлы уменьшаются, канва покрывается большим числом тайлов).
     /// </summary>
-    public async Task<byte[]> RenderPositionAsync(GpsPoint point, CancellationToken ct = default)
+    public async Task<byte[]> RenderPositionAsync(GpsPoint point, CancellationToken ct = default, double zoomOutFactor = 1.0)
     {
         var zoom = Math.Clamp(_mapSettings.DefaultZoom, 1, 18);
 
@@ -34,7 +36,8 @@ public class MapRendererService : IMapRendererService
             new[] { new GeoPoint(point.Latitude, point.Longitude) },
             zoom,
             imageSize: 512,
-            paddingPx: 96);
+            paddingPx: 96,
+            maxScale: 1.0 / Math.Clamp(zoomOutFactor, 1.0, 10.0));
 
         using var surface = SKSurface.Create(new SKImageInfo(tiles.Width, tiles.Height));
         var canvas = surface.Canvas;
@@ -241,7 +244,7 @@ public class MapRendererService : IMapRendererService
 
 public interface IMapRendererService
 {
-    Task<byte[]> RenderPositionAsync(GpsPoint point, CancellationToken ct = default);
+    Task<byte[]> RenderPositionAsync(GpsPoint point, CancellationToken ct = default, double zoomOutFactor = 1.0);
     Task<byte[]> RenderTrackAsync(IReadOnlyList<GpsPoint> points, CancellationToken ct = default);
 }
 
@@ -337,12 +340,15 @@ public class TileGrid
     /// <summary>
     /// Считает раскладку тайлов для набора точек: центр bounding box попадает
     /// точно в центр канвы независимо от выравнивания тайловой сетки.
+    /// <paramref name="maxScale"/> ограничивает масштаб сверху (значения &lt; 1 =
+    /// уменьшение масштаба: тайлы рисуются мельче, их нужно больше).
     /// </summary>
     public static TileGrid Calculate(
         IReadOnlyList<GeoPoint> points,
         int zoom,
         int imageSize,
-        int paddingPx)
+        int paddingPx,
+        double maxScale = 1.0)
     {
         var xs = points.Select(p => LongitudeToX(p.Longitude, zoom)).ToList();
         var ys = points.Select(p => LatitudeToY(p.Latitude, zoom)).ToList();
@@ -350,17 +356,14 @@ public class TileGrid
         var centerX = (xs.Min() + xs.Max()) / 2.0;
         var centerY = (ys.Min() + ys.Max()) / 2.0;
 
-        // Базовый масштаб 1.0; если трек не влезает с padding — уменьшаем
+        // Масштаб: трек должен влезть с padding, но не крупнее maxScale
         var requiredX = (xs.Max() - xs.Min()) * TileSizePx;
         var requiredY = (ys.Max() - ys.Min()) * TileSizePx;
         var available = imageSize - paddingPx * 2;
         var scale = Math.Min(
             requiredX > 0 ? available / requiredX : double.MaxValue,
             requiredY > 0 ? available / requiredY : double.MaxValue);
-        if (scale > 1.0)
-        {
-            scale = 1.0;
-        }
+        scale = Math.Min(scale, Math.Max(maxScale, 1e-6));
 
         // Дробное начало сетки: центр bbox ровно в центре imageSize.
         // Раньше здесь был Floor — дробный остаток сдвигал контент к краю,

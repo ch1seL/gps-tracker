@@ -81,6 +81,7 @@ public class TelegramBotService : BackgroundService
                     🛰 GPS-трекер
 
                     /pos — текущая позиция на карте
+                    /pos 2.5 — то же, но масштаб меньше в 2.5 раза (1–10)
                     /history — история движения за сутки
                     /history 2d — история за 2 дня
                     /history 6h — история за 6 часов
@@ -90,7 +91,7 @@ public class TelegramBotService : BackgroundService
             }
             else if (text.StartsWith("/pos", StringComparison.OrdinalIgnoreCase))
             {
-                await SendPositionAsync(bot, chatId, ct);
+                await SendPositionAsync(bot, chatId, text, ct);
             }
             else if (text.StartsWith("/history", StringComparison.OrdinalIgnoreCase))
             {
@@ -115,8 +116,19 @@ public class TelegramBotService : BackgroundService
         return Task.CompletedTask;
     }
 
-    private async Task SendPositionAsync(ITelegramBotClient bot, long chatId, CancellationToken ct)
+    private async Task SendPositionAsync(ITelegramBotClient bot, long chatId, string command, CancellationToken ct)
     {
+        if (TryParseZoomFactor(command, out var zoomOutFactor) is false)
+        {
+            await bot.SendMessage(chatId,
+                "Не удалось разобрать масштаб. Примеры:\n" +
+                "/pos — текущий масштаб\n" +
+                "/pos 2 — уменьшить в 2 раза\n" +
+                "/pos 2.5 — уменьшить в 2.5 раза (от 1 до 10)",
+                cancellationToken: ct);
+            return;
+        }
+
         await using var db = await _dbContextFactory.CreateDbContextAsync(ct);
 
         var lastPoint = await db.GpsPoints
@@ -133,7 +145,7 @@ public class TelegramBotService : BackgroundService
 
             try
             {
-                var png = await _mapRenderer.RenderPositionAsync(lastPoint, ct);
+                var png = await _mapRenderer.RenderPositionAsync(lastPoint, ct, zoomOutFactor);
                 using var stream = new MemoryStream(png);
                 var photo = new InputFileStream(stream, "position.png");
                 await bot.SendPhoto(chatId, photo, caption: caption, parseMode: ParseMode.Html, cancellationToken: ct);
@@ -195,6 +207,43 @@ public class TelegramBotService : BackgroundService
     }
 
     // ---------- Разбор периода ----------
+
+    /// <summary>
+    /// Разбирает множитель уменьшения масштаба из /pos: пусто = 1 (как было),
+    /// "2.5" или "2,5" = уменьшить в 2.5 раза. Допустимый диапазон [1, 10]:
+    /// выше — точка перестаёт быть узнаваемой, а тайлов становится слишком много.
+    /// Возвращает false только на мусоре ("abc", "0", "-1", "25").
+    /// </summary>
+    public static bool TryParseZoomFactor(string command, out double zoomOutFactor)
+    {
+        zoomOutFactor = 1.0;
+
+        var args = command.Split(' ', StringSplitOptions.RemoveEmptyEntries).Skip(1).ToArray();
+
+        if (args.Length == 0)
+        {
+            return true;
+        }
+
+        if (args.Length > 1)
+        {
+            return false;
+        }
+
+        // Десятичный разделитель — и точка, и запятая (телефон мог заменить)
+        if (!double.TryParse(args[0].Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+        {
+            return false;
+        }
+
+        if (value is < 1.0 or > 10.0)
+        {
+            return false;
+        }
+
+        zoomOutFactor = value;
+        return true;
+    }
 
     /// <summary>
     /// Поддерживаемые форматы: (пусто) = сутки, 2d = 2 дня, 6h = 6 часов,
