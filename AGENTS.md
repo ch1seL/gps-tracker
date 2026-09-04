@@ -8,7 +8,7 @@
 
 ```bash
 dotnet build                         # сборка (0 ошибок / 0 предупреждений — норма)
-dotnet test                          # 18 тестов: парсеры + интеграционные, ~4 сек, без сети
+dotnet test                          # 18 тестов (xunit.v3): парсеры + интеграционные, ~5 сек, без сети
 dotnet run --project src/GpsTracker  # запуск приложения (TCP :5023 + Telegram-бот)
 dotnet run --project tools/MapTest   # проверка рендера → map-position.png / map-history.png
 ```
@@ -34,9 +34,27 @@ dotnet run --project tools/MapTest   # проверка рендера → map-p
 - `appsettings.json` содержит реальный токен бота — копировать его содержимое в другие
   файлы, документацию и вывод команд нельзя.
 
+## Общая конфигурация проектов (Directory.*.props)
+
+- `Directory.Build.props` — общие `PropertyGroup`-свойства: `TargetFramework`, `Nullable`,
+  `ImplicitUsings`. В `.csproj` их **не дублировать**.
+- `Directory.Packages.props` — версии NuGet-пакетов (CPM, ниже).
+
+## NuGet: Central Package Management
+
+- Все версии пакетов — **только в `Directory.Packages.props`** (в корне репо).
+- В `.csproj` `PackageReference` указывается **без атрибута `Version`** (иначе NU1008);
+  метаданные вроде `PrivateAssets` допустимы.
+- Новый пакет = строка `<PackageVersion Include="..." Version="..." />` в props-файле +
+  `<PackageReference Include="..." />` в проекте. Обновление версии — в одном месте.
+- `SQLitePCLRaw.bundle_e_sqlite3` — закреплённая транзитивная зависимость (GHSA-2m69-gcr7-jv3q).
+
 ## Карта кода
 
 ```
+Directory.Build.props               общие свойства проектов: TFM, Nullable, ImplicitUsings
+Directory.Packages.props            версии всех NuGet-пакетов (CPM, см. раздел выше)
+global.json                         фиксация версии .NET SDK
 src/GpsTracker/                     Worker Service (net10.0)
 ├── Program.cs                      DI: AddDbContextFactory, HttpClient "tiles", IOptions, HostedServices
 ├── appsettings.json                порт, токен бота, tile-сервер, строка подключения (секреты не трогать)
@@ -52,7 +70,7 @@ src/GpsTracker/                     Worker Service (net10.0)
 │   ├── TcpListenerService.cs       BackgroundService: TcpListener, автодетект протокола, буферы, SavePointAsync
 │   ├── TelegramBotService.cs       BackgroundService: Telegram.Bot v22, команды /start /pos /history
 │   └── MapRendererService.cs       SkiaSharp: сетка OSM-тайлов (дисковый кеш), polyline по скорости
-tests/GpsTracker.Tests/             xunit (net10.0), включён в GpsTracker.sln
+tests/GpsTracker.Tests/             xunit.v3 (net10.0, OutputType=Exe), включён в GpsTracker.sln
 ├── Gt02TextProtocolParserTests.cs  11 юнит-тестов на реальных кадрах трекера
 ├── TcpProtocolIntegrationTests.cs  7 интеграционных: реальный TcpListenerService на свободном порту
 ├── Helpers/Gt02Frames.cs           конструктор кадров GT02 (логин/локация)

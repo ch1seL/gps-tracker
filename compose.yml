@@ -1,0 +1,30 @@
+# Docker Compose для хостинга. Секреты — в .env (создаётся tools/generate-env.sh).
+# Запуск: docker compose up -d --build
+
+services:
+  gps-tracker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gps-tracker:local
+    container_name: gps-tracker
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false # без .env поднимется только TCP-сервер, бот выключится с warning'ом
+    ports:
+      - "5023:5023" # приём координат от трекера
+    volumes:
+      - gps-data:/app/App_Data # SQLite-база
+      - gps-tiles:/app/tile-cache # кеш OSM-тайлов
+    healthcheck:
+      # Проверка, что TCP-сервер слушает порт
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/5023"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  gps-data:
+  gps-tiles:
