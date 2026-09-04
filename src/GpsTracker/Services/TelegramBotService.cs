@@ -46,7 +46,7 @@ public class TelegramBotService : BackgroundService
 
         bot.StartReceiving(
             updateHandler: HandleUpdateAsync,
-            pollingErrorHandler: HandlePollingErrorAsync,
+            errorHandler: HandlePollingErrorAsync,
             receiverOptions: new ReceiverOptions { AllowedUpdates = Array.Empty<UpdateType>() },
             cancellationToken: stoppingToken);
 
@@ -76,7 +76,7 @@ public class TelegramBotService : BackgroundService
 
             if (text.StartsWith("/start", StringComparison.OrdinalIgnoreCase))
             {
-                await bot.SendTextMessageAsync(chatId,
+                await bot.SendMessage(chatId,
                     """
                     🛰 GPS-трекер
 
@@ -125,7 +125,7 @@ public class TelegramBotService : BackgroundService
 
         if (lastPoint is null)
         {
-            await bot.SendTextMessageAsync(chatId, "Пока нет данных о позиции.", cancellationToken: ct);
+            await bot.SendMessage(chatId, "Пока нет данных о позиции.", cancellationToken: ct);
             return;
         }
 
@@ -136,12 +136,12 @@ public class TelegramBotService : BackgroundService
             var png = await _mapRenderer.RenderPositionAsync(lastPoint, ct);
             using var stream = new MemoryStream(png);
             var photo = new InputFileStream(stream, "position.png");
-            await bot.SendPhotoAsync(chatId, photo, caption: caption, cancellationToken: ct);
+            await bot.SendPhoto(chatId, photo, caption: caption, cancellationToken: ct);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Не удалось отрисовать карту позиции");
-            await bot.SendTextMessageAsync(chatId, caption, cancellationToken: ct);
+            await bot.SendMessage(chatId, caption, cancellationToken: ct);
         }
     }
 
@@ -150,7 +150,7 @@ public class TelegramBotService : BackgroundService
         var period = ParseHistoryPeriod(command);
         if (period is null)
         {
-            await bot.SendTextMessageAsync(chatId,
+            await bot.SendMessage(chatId,
                 "Не удалось разобрать период. Примеры:\n" +
                 "/history — за сутки\n" +
                 "/history 2d — за 2 дня\n" +
@@ -170,7 +170,7 @@ public class TelegramBotService : BackgroundService
 
         if (points.Count == 0)
         {
-            await bot.SendTextMessageAsync(chatId, "За этот период нет точек движения.", cancellationToken: ct);
+            await bot.SendMessage(chatId, "За этот период нет точек движения.", cancellationToken: ct);
             return;
         }
 
@@ -181,12 +181,12 @@ public class TelegramBotService : BackgroundService
             var png = await _mapRenderer.RenderTrackAsync(points, ct);
             using var stream = new MemoryStream(png);
             var photo = new InputFileStream(stream, "history.png");
-            await bot.SendPhotoAsync(chatId, photo, caption: caption, parseMode: ParseMode.Html, cancellationToken: ct);
+            await bot.SendPhoto(chatId, photo, caption: caption, parseMode: ParseMode.Html, cancellationToken: ct);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Не удалось отрисовать карту истории");
-            await bot.SendTextMessageAsync(chatId, caption, parseMode: ParseMode.Html, cancellationToken: ct);
+            await bot.SendMessage(chatId, caption, parseMode: ParseMode.Html, cancellationToken: ct);
         }
     }
 

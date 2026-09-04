@@ -100,7 +100,8 @@ public class MapRendererService : IMapRendererService
                             (tile.X - tiles.MinX) * TileSize,
                             (tile.Y - tiles.MinY) * TileSize,
                             (tile.X - tiles.MinX + 1) * TileSize,
-                            (tile.Y - tiles.MinY + 1) * TileSize));
+                            (tile.Y - tiles.MinY + 1) * TileSize),
+                        new SKSamplingOptions(SKCubicResampler.Mitchell));
                 }
                 catch (Exception ex)
                 {

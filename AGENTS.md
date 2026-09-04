@@ -50,7 +50,7 @@ src/GpsTracker/                     Worker Service (net10.0)
 │   └── Gt06ProtocolConstants.cs    номера протоколов и заголовки
 ├── Services/
 │   ├── TcpListenerService.cs       BackgroundService: TcpListener, автодетект протокола, буферы, SavePointAsync
-│   ├── TelegramBotService.cs       BackgroundService: Telegram.Bot v19, команды /start /pos /history
+│   ├── TelegramBotService.cs       BackgroundService: Telegram.Bot v22, команды /start /pos /history
 │   └── MapRendererService.cs       SkiaSharp: сетка OSM-тайлов (дисковый кеш), polyline по скорости
 tests/GpsTracker.Tests/             xunit (net10.0), включён в GpsTracker.sln
 ├── Gt02TextProtocolParserTests.cs  11 юнит-тестов на реальных кадрах трекера
@@ -115,20 +115,24 @@ tools/MapTest/                      консольная утилита пров
 
 ## Инварианты и подводные камни
 
-1. **.NET 10**: пакеты EF Core/Hosting/Http версии 10.0.0; SkiaSharp 2.88.7;
-   Telegram.Bot 19.0.0. Понижение TFM ломает сборку.
-2. **Telegram.Bot v19 API**: `SendTextMessageAsync`/`SendPhotoAsync` (методов
-   `SendMessage`/`SendPhoto` нет); приём — `StartReceiving(updateHandler:, pollingErrorHandler:)`;
-   `InputFileStream` НЕ IDisposable (оборачивать `MemoryStream` в `using` отдельно).
-3. **SkiaSharp**: `SKColors.Parse` не существует — только `new SKColor(r, g, b)`;
-   `with`-выражения на классах не работают (например `TileGrid` — ctor-based класс).
+1. **.NET 10**: пакеты EF Core/Hosting/Http версии 10.0.11; SkiaSharp 4.151.2;
+   Telegram.Bot 22.10.3; `global.json` фиксирует SDK 10.0.302 (rollForward latestFeature).
+   Понижение TFM ломает сборку.
+2. **Telegram.Bot v22 API**: методы без суффикса Async — `SendMessage`/`SendPhoto`
+   (`SendTextMessageAsync`/`SendPhotoAsync` из v19 не существуют); приём —
+   `bot.StartReceiving(updateHandler:, errorHandler:, receiverOptions:, cancellationToken:)`
+   (в v19 параметр назывался pollingErrorHandler); `InputFileStream` НЕ IDisposable
+   (оборачивать `MemoryStream` в `using` отдельно).
+3. **SkiaSharp 4**: `SKColors.Parse` не существует — только `new SKColor(r, g, b)`;
+   `with`-выражения на классах не работают (например `TileGrid` — ctor-based класс);
+   `canvas.DrawBitmap` требует оверлоад с `SKSamplingOptions` (без него CS0618).
 4. **Парсеры — чистые статические функции** без IO; всё чтение полей — фиксированная
    ширина + `CultureInfo.InvariantCulture`.
 5. **Культура**: `double.Parse`/интерполяция чисел без InvariantCulture в ru-RU даёт
    запятую (`6006,96`), что молча искажает координаты (тестовый хост зафиксирован в
    `ModuleInitializer.cs`). Тот же риск в любом новом коде разбора.
 6. IMEI живёт в сессии, а не в пакете локации (оба протокола).
-7. `SQLitePCLRaw.bundle_e_sqlite3 2.1.13` закреплён явно — закрывает GHSA-2m69-gcr7-jv3q,
+7. `SQLitePCLRaw.bundle_e_sqlite3 3.0.5` закреплён явно — закрывает GHSA-2m69-gcr7-jv3q,
    не удалять.
 8. Тестовый проект включён в sln вручную (`dotnet new xunit`/`dotnet sln add` падают из-за
    песочницы) — новые тесты добавлять файлами в существующий проект.
